@@ -1,0 +1,42 @@
+https://zignar.net/2021/05/14/neovim-completion-pluign-building-blocks/
+
+## vim.fn.complete
+
+   vim.fn.complete takes a startbyte and selecting a completion entry will
+   replace anything between the startbyte and the current cursor position
+   with the completion item's word
+
+   `col` is derived using `vim.fn.match(line_to_cursor, '\\k*$') + 1`
+   Which works for most cases to find the word boundary, but the language
+   server may work with a different boundary.
+
+   Luckily, the LSP response contains an (optional) `textEdit` with range,
+   which indicates which boundary the language server used.
+
+   Concrete example, in Lua where there is currently a known mismatch:
+
+   require('plenary.asy|
+           ▲       ▲   ▲
+           │       │   │
+           │       │   └── cursor_pos: 20
+           │       └────── col: 17
+           └────────────── textEdit.range.start.character: 9
+                                   .newText = 'plenary.async'
+
+   Caveat:
+    - textEdit.range can (in theory) be different *per* item.
+    - range.start.character is (usually) a UTF-16 offset
+
+   Approach:
+    - Use textEdit.range.start.character *only* if *all* items contain the same value
+      Otherwise we'd have to normalize the `word` value.
+
+
+## snippet formats
+
+   eclipse.jdt.ls has
+        insertText = "wait", label = "wait() : void", textEdit = { ... }
+   haskell-ide-engine has
+        insertText = "testSuites ${1:Env}", label = "testSuites"
+   lua-language-server has
+        insertText = "query_definition", label = "query_definition(pattern)",
