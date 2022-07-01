@@ -2,7 +2,6 @@
 (local default-opts {:leading_debounce 25})
 (local compl-ctx (require :lsp_compl.compl-ctx))
 (local run-ctx (require :lsp_compl.run-ctx))
-(local SNIPPET 2)
 
 (fn ns-to-ms [ns]
   (* ns 1e-06))
@@ -19,16 +18,10 @@
 
 ;; fnlfmt: skip
 (fn completion-item [item fuzzy]
+  (print :item (vim.inspect item))
   (let [info (get-documentation item)
         kind (or (. vim.lsp.protocol.CompletionItemKind item.kind) "")
-        word (if (= kind :Snippet) item.label
-                 (= item.insertTextFormat SNIPPET) ;; see doc.txt#snippet formats
-                 (if item.textEdit (or item.insertText item.textEdit.newText)
-                     item.insertText (if (< (length item.label) (length item.insertText))
-                                         item.label
-                                         item.insertText)
-                     item.label)
-                 (or (?. item.textEdit :newText) item.insertText item.label))]
+        word (or (?. item.textEdit :newText) item.insertText item.label)]
     {: info : kind : word
      :user_data item
      :menu (or item.detail "")
@@ -172,16 +165,6 @@
                               (or text-edits {}))]
     (vim.lsp.util.apply_text_edits edits bufnr offset-encoding)))
 
-(fn expand_snippet [snippet]
-  (let [(ok luasnip) (pcall require :luasnip)
-        f (or (and ok luasnip.lsp_expand) (. vim.fn "vsnip#anonymous"))]
-    (f snippet)))
-
-(fn apply-snippet [item suffix]
-  ;; TODO: move cursor back to end of new text?
-  (if item.textEdit (expand_snippet (.. item.textEdit.newText suffix))
-      item.insertText (expand_snippet (.. item.insertText suffix))))
-
 (fn completion-item-resolve [item bufnr lnum offset-encoding]
   (fn handler [err result]
     (set compl-ctx.pending_requests {})
@@ -203,23 +186,12 @@
             (let [(lnum col) (unpack (vim.api.nvim_win_get_cursor 0))
                   lnum (- lnum 1)
                   item completed-item.user_data
-                  bufnr (vim.api.nvim_get_current_buf)
-                  expand-snippet (and (= item.insertTextFormat SNIPPET)
-                                      compl-ctx.expand_snippet)]
-              (if expand-snippet ;; remove the already inserted word
-                  (let [start-char (- col (length completed-item.word))
-                        lines (vim.api.nvim_buf_get_lines bufnr lnum (+ lnum 1)
-                                                          true)
-                        line (. lines 1)
-                        set-text vim.api.nvim_buf_set_text]
-                    (set compl-ctx.suffix (line:sub (+ col 1)))
-                    (set-text bufnr lnum start-char lnum (length line) [""])))
+                  bufnr (vim.api.nvim_get_current_buf)]
               (let [suffix compl-ctx.suffix
                     client (vim.lsp.get_client_by_id client-id)
                     offset-encoding (or (and client client.offset_encoding)
                                         :utf-16)]
                 (compl-ctx.reset)
-                (if expand-snippet (apply-snippet item suffix))
                 (if item.additionalTextEdits
                     (apply-text-edits bufnr lnum item.additionalTextEdits
                                       offset-encoding)
@@ -229,10 +201,7 @@
                       (table.insert compl-ctx.pending_requests cancel)))))))))
 
 (fn accept_pum []
-  (let [pv (tonumber (vim.fn.pumvisible))
-        vis (> pv 0)]
-    (set compl-ctx.expand_snippet vis)
-    vis))
+  (> (tonumber (vim.fn.pumvisible)) 0))
 
 (fn group-name [client-id bufnr]
   (string.format "LspCompl%d-%d" client-id bufnr))
@@ -290,5 +259,5 @@
       (if (and completion-triggers (> (length completion-triggers) 0))
           (table.insert triggers [completion-triggers trigger_completion])))))
 
-{: attach : detach : trigger_completion : expand_snippet : accept_pum}
+{: attach : detach : trigger_completion : accept_pum}
 

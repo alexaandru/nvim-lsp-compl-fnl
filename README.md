@@ -8,3 +8,7 @@ I will only document here what is different from that, starting with the reason 
 what better way than translating it to Fennel :-)
 
 There is absolutely no reason to use this project, instead of the original.
+
+Changes from original:
+
+- removed support for snippets
