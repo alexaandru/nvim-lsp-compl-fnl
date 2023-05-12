@@ -18,10 +18,10 @@
 
 ;; fnlfmt: skip
 (fn completion-item [item fuzzy]
-  (print :item (vim.inspect item))
   (let [info (get-documentation item)
         kind (or (. vim.lsp.protocol.CompletionItemKind item.kind) "")
-        word (or (?. item.textEdit :newText) item.insertText item.label)]
+        text (or (?. item.textEdit :newText) item.insertText item.label)
+        word (or (and (or fuzzy (vim.startswith text item.label)) text) item.label)]
     {: info : kind : word
      :user_data item
      :menu (or item.detail "")
@@ -159,19 +159,14 @@
   (set compl-ctx.cursor nil)
   (compl-ctx.reset))
 
-(fn apply-text-edits [bufnr lnum text-edits offset-encoding]
-  ;; Text edit in the same line would mess with the cursor position
-  (let [edits (vim.tbl_filter #(not= $.range.start.line lnum)
-                              (or text-edits {}))]
-    (vim.lsp.util.apply_text_edits edits bufnr offset-encoding)))
-
 (fn completion-item-resolve [item bufnr lnum offset-encoding]
   (fn handler [err result]
     (set compl-ctx.pending_requests {})
     (let [additional-text-edits (?. result :additionalTextEdits)]
       (if err (vim.notify err.message vim.log.levels.WARN)
           additional-text-edits
-          (apply-text-edits bufnr lnum additional-text-edits offset-encoding))))
+          (vim.lsp.util.apply_text_edits additional-text-edits bufnr
+                                         offset-encoding))))
 
   (vim.lsp.buf_request bufnr :completionItem/resolve item handler))
 
@@ -187,13 +182,14 @@
                   bufnr (vim.api.nvim_get_current_buf)]
               (let [suffix compl-ctx.suffix
                     client (vim.lsp.get_client_by_id client-id)
-                    offset-encoding (or (and client client.offset_encoding) :utf-16)
+                    offset-encoding (or (and client client.offset_encoding)
+                                        :utf-16)
                     resolve-edits (?. client.server_capabilities.completionProvider
                                       :resolveProvider)]
                 (compl-ctx.reset)
                 (if item.additionalTextEdits
-                    (apply-text-edits bufnr lnum item.additionalTextEdits
-                                      offset-encoding)
+                    (vim.lsp.util.apply_text_edits item.additionalTextEdits
+                                                   bufnr offset-encoding)
                     (and resolve-edits (= (type item) :table))
                     (let [(ok cancel) (completion-item-resolve item bufnr lnum
                                                                offset-encoding)]
