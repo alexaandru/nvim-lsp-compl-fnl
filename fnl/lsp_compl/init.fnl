@@ -173,11 +173,9 @@
           additional-text-edits
           (apply-text-edits bufnr lnum additional-text-edits offset-encoding))))
 
-  (let [req vim.lsp.buf_request
-        (_ cancel) (req bufnr :completionItem/resolve item handler)]
-    cancel))
+  (vim.lsp.buf_request bufnr :completionItem/resolve item handler))
 
-(fn complete-done [client-id resolve-edits]
+(fn complete-done [client-id]
   (if compl-ctx.suppress_completeDone
       (set compl-ctx.suppress_completeDone false)
       (let [completed-item (vim.api.nvim_get_vvar :completed_item)
@@ -189,16 +187,17 @@
                   bufnr (vim.api.nvim_get_current_buf)]
               (let [suffix compl-ctx.suffix
                     client (vim.lsp.get_client_by_id client-id)
-                    offset-encoding (or (and client client.offset_encoding)
-                                        :utf-16)]
+                    offset-encoding (or (and client client.offset_encoding) :utf-16)
+                    resolve-edits (?. client.server_capabilities.completionProvider
+                                      :resolveProvider)]
                 (compl-ctx.reset)
                 (if item.additionalTextEdits
                     (apply-text-edits bufnr lnum item.additionalTextEdits
                                       offset-encoding)
                     (and resolve-edits (= (type item) :table))
-                    (let [cancel (completion-item-resolve item bufnr lnum
-                                                          offset-encoding)]
-                      (table.insert compl-ctx.pending_requests cancel)))))))))
+                    (let [(ok cancel) (completion-item-resolve item bufnr lnum
+                                                               offset-encoding)]
+                      (if ok (table.insert compl-ctx.pending_requests cancel))))))))))
 
 (fn accept_pum []
   (> (tonumber (vim.fn.pumvisible)) 0))
@@ -241,9 +240,7 @@
         (au :TextChangedP text-changed-p)
         (au :TextChangedI text-changed-i))
       (au :InsertLeave insert-leave)
-      (local resolve-edits (?. client.server_capabilities.completionProvider
-                               :resolveProvider))
-      (au :CompleteDone #(complete-done client.id resolve-edits)))
+      (au :CompleteDone #(complete-done client.id)))
     (var triggers (. run-ctx.triggers bufnr))
     (when (not triggers)
       (set triggers {})
